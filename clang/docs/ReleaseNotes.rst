@@ -233,6 +233,8 @@ Bug Fixes in This Version
 - Fixes an assertion failure when evaluating ``__underlying_type`` on enum redeclarations. (#GH177943)
 
 - Clang now outputs relative paths of embeds for dependency output. (#GH161950)
+- Fixed a crash where error and instantiation dependence were not properly
+  propagated from ``_Generic`` associations. (#GH176929)
 
 Bug Fixes to Compiler Builtins
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
