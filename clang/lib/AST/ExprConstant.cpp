@@ -16408,6 +16408,75 @@ bool IntExprEvaluator::VisitBuiltinCallExpr(const CallExpr *E,
     return Success(Val.byteSwap(), E);
   }
 
+  case Builtin::BI__builtin_ilogb:
+  case Builtin::BI__builtin_ilogbf:
+  case Builtin::BI__builtin_ilogbl:
+  case Builtin::BI__builtin_ilogbf16:
+  case Builtin::BI__builtin_ilogbf128: {
+    APFloat Arg(0.0);
+    if (!EvaluateFloat(E->getArg(0), Arg, Info))
+      return false;
+    if (Arg.isNaN() || Arg.isInfinity() || Arg.isZero()) {
+      Info.FFDiag(E, diag::note_constexpr_float_arithmetic) << 1;
+      return false;
+    }
+    return Success(ilogb(Arg), E);
+  }
+
+  case Builtin::BI__builtin_lround:
+  case Builtin::BI__builtin_lroundf:
+  case Builtin::BI__builtin_lroundl:
+  case Builtin::BI__builtin_lroundf16:
+  case Builtin::BI__builtin_lroundf128:
+  case Builtin::BI__builtin_llround:
+  case Builtin::BI__builtin_llroundf:
+  case Builtin::BI__builtin_llroundl:
+  case Builtin::BI__builtin_llroundf16:
+  case Builtin::BI__builtin_llroundf128:
+  case Builtin::BI__builtin_lrint:
+  case Builtin::BI__builtin_lrintf:
+  case Builtin::BI__builtin_lrintl:
+  case Builtin::BI__builtin_lrintf16:
+  case Builtin::BI__builtin_lrintf128:
+  case Builtin::BI__builtin_llrint:
+  case Builtin::BI__builtin_llrintf:
+  case Builtin::BI__builtin_llrintl:
+  case Builtin::BI__builtin_llrintf16:
+  case Builtin::BI__builtin_llrintf128: {
+    APFloat Arg(0.0);
+    if (!EvaluateFloat(E->getArg(0), Arg, Info))
+      return false;
+    
+    llvm::RoundingMode RM = llvm::RoundingMode::NearestTiesToEven;
+    switch (BuiltinOp) {
+    case Builtin::BI__builtin_lround:
+    case Builtin::BI__builtin_lroundf:
+    case Builtin::BI__builtin_lroundl:
+    case Builtin::BI__builtin_lroundf16:
+    case Builtin::BI__builtin_lroundf128:
+    case Builtin::BI__builtin_llround:
+    case Builtin::BI__builtin_llroundf:
+    case Builtin::BI__builtin_llroundl:
+    case Builtin::BI__builtin_llroundf16:
+    case Builtin::BI__builtin_llroundf128:
+      RM = llvm::RoundingMode::NearestTiesToAway;
+      break;
+    default:
+      RM = getActiveRoundingMode(getEvalInfo(), E);
+      break;
+    }
+
+    Arg.roundToIntegral(RM);
+    APSInt IntResult(Info.Ctx.getTypeSize(E->getType()), /*IsUnsigned=*/false);
+    bool IsExact;
+    APFloat::opStatus St = Arg.convertToInteger(IntResult, RM, &IsExact);
+    if (St & APFloat::opInvalidOp) {
+      Info.FFDiag(E, diag::note_constexpr_float_arithmetic) << /*NaN=*/1;
+      return false;
+    }
+    return Success(IntResult, E);
+  }
+
   case Builtin::BI__builtin_classify_type:
     return Success((int)EvaluateBuiltinClassifyType(E, Info.getLangOpts()), E);
 
@@ -19595,6 +19664,87 @@ bool FloatExprEvaluator::VisitCallExpr(const CallExpr *E) {
     return true;
   }
 
+  case Builtin::BI__builtin_fdim:
+  case Builtin::BI__builtin_fdimf:
+  case Builtin::BI__builtin_fdiml:
+  case Builtin::BI__builtin_fdimf16:
+  case Builtin::BI__builtin_fdimf128: {
+    APFloat RHS(0.);
+    if (!EvaluateFloat(E->getArg(0), Result, Info) ||
+        !EvaluateFloat(E->getArg(1), RHS, Info))
+      return false;
+    if (Result.compare(RHS) == APFloat::cmpLessThan)
+      Result = APFloat::getZero(Result.getSemantics());
+    else
+      (void)Result.subtract(RHS, APFloat::rmNearestTiesToEven);
+    return true;
+  }
+
+  case Builtin::BI__builtin_ceil:
+  case Builtin::BI__builtin_ceilf:
+  case Builtin::BI__builtin_ceill:
+  case Builtin::BI__builtin_ceilf16:
+  case Builtin::BI__builtin_ceilf128:
+    if (!EvaluateFloat(E->getArg(0), Result, Info))
+      return false;
+    Result.roundToIntegral(llvm::RoundingMode::TowardPositive);
+    return true;
+
+  case Builtin::BI__builtin_floor:
+  case Builtin::BI__builtin_floorf:
+  case Builtin::BI__builtin_floorl:
+  case Builtin::BI__builtin_floorf16:
+  case Builtin::BI__builtin_floorf128:
+    if (!EvaluateFloat(E->getArg(0), Result, Info))
+      return false;
+    Result.roundToIntegral(llvm::RoundingMode::TowardNegative);
+    return true;
+
+  case Builtin::BI__builtin_round:
+  case Builtin::BI__builtin_roundf:
+  case Builtin::BI__builtin_roundl:
+  case Builtin::BI__builtin_roundf16:
+  case Builtin::BI__builtin_roundf128:
+    if (!EvaluateFloat(E->getArg(0), Result, Info))
+      return false;
+    Result.roundToIntegral(llvm::RoundingMode::NearestTiesToAway);
+    return true;
+
+  case Builtin::BI__builtin_roundeven:
+  case Builtin::BI__builtin_roundevenf:
+  case Builtin::BI__builtin_roundevenl:
+  case Builtin::BI__builtin_roundevenf16:
+  case Builtin::BI__builtin_roundevenf128:
+    if (!EvaluateFloat(E->getArg(0), Result, Info))
+      return false;
+    Result.roundToIntegral(llvm::RoundingMode::NearestTiesToEven);
+    return true;
+
+  case Builtin::BI__builtin_trunc:
+  case Builtin::BI__builtin_truncf:
+  case Builtin::BI__builtin_truncl:
+  case Builtin::BI__builtin_truncf16:
+  case Builtin::BI__builtin_truncf128:
+    if (!EvaluateFloat(E->getArg(0), Result, Info))
+      return false;
+    Result.roundToIntegral(llvm::RoundingMode::TowardZero);
+    return true;
+
+  case Builtin::BI__builtin_rint:
+  case Builtin::BI__builtin_rintf:
+  case Builtin::BI__builtin_rintl:
+  case Builtin::BI__builtin_rintf16:
+  case Builtin::BI__builtin_rintf128:
+  case Builtin::BI__builtin_nearbyint:
+  case Builtin::BI__builtin_nearbyintf:
+  case Builtin::BI__builtin_nearbyintl:
+  case Builtin::BI__builtin_nearbyintf16:
+  case Builtin::BI__builtin_nearbyintf128:
+    if (!EvaluateFloat(E->getArg(0), Result, Info))
+      return false;
+    Result.roundToIntegral(getActiveRoundingMode(getEvalInfo(), E));
+    return true;
+
   case Builtin::BI__builtin_fmin:
   case Builtin::BI__builtin_fminf:
   case Builtin::BI__builtin_fminl:
@@ -19605,6 +19755,41 @@ bool FloatExprEvaluator::VisitCallExpr(const CallExpr *E) {
         !EvaluateFloat(E->getArg(1), RHS, Info))
       return false;
     Result = minnum(Result, RHS);
+    return true;
+  }
+
+  case Builtin::BI__builtin_fmod:
+  case Builtin::BI__builtin_fmodf:
+  case Builtin::BI__builtin_fmodl:
+  case Builtin::BI__builtin_fmodf16:
+  case Builtin::BI__builtin_fmodf128: {
+    APFloat RHS(0.);
+    if (!EvaluateFloat(E->getArg(0), Result, Info) ||
+        !EvaluateFloat(E->getArg(1), RHS, Info))
+      return false;
+    APFloat::opStatus St = Result.mod(RHS);
+    if (St == APFloat::opInvalidOp) {
+      // fmod(x, y) where x is inf or y is zero returns NaN and raises invalid.
+      // C++ consteval does not allow this.
+      Info.FFDiag(E, diag::note_constexpr_float_arithmetic) << /*NaN=*/1;
+      return false;
+    }
+    return true;
+  }
+
+  case Builtin::BI__builtin_remainder:
+  case Builtin::BI__builtin_remainderf:
+  case Builtin::BI__builtin_remainderl:
+  case Builtin::BI__builtin_remainderf128: {
+    APFloat RHS(0.);
+    if (!EvaluateFloat(E->getArg(0), Result, Info) ||
+        !EvaluateFloat(E->getArg(1), RHS, Info))
+      return false;
+    APFloat::opStatus St = Result.remainder(RHS);
+    if (St == APFloat::opInvalidOp) {
+      Info.FFDiag(E, diag::note_constexpr_float_arithmetic) << /*NaN=*/1;
+      return false;
+    }
     return true;
   }
 
@@ -19639,6 +19824,13 @@ bool FloatExprEvaluator::VisitCallExpr(const CallExpr *E) {
         !E->getArg(2)->isPRValue()) {
       return false;
     }
+    [[fallthrough]];
+  }
+  case Builtin::BI__builtin_fma:
+  case Builtin::BI__builtin_fmaf:
+  case Builtin::BI__builtin_fmal:
+  case Builtin::BI__builtin_fmaf16:
+  case Builtin::BI__builtin_fmaf128: {
     APFloat SourceY(0.), SourceZ(0.);
     if (!EvaluateFloat(E->getArg(0), Result, Info) ||
         !EvaluateFloat(E->getArg(1), SourceY, Info) ||
@@ -19646,6 +19838,187 @@ bool FloatExprEvaluator::VisitCallExpr(const CallExpr *E) {
       return false;
     llvm::RoundingMode RM = getActiveRoundingMode(getEvalInfo(), E);
     (void)Result.fusedMultiplyAdd(SourceY, SourceZ, RM);
+    return true;
+  }
+
+  case Builtin::BI__builtin_logb:
+  case Builtin::BI__builtin_logbf:
+  case Builtin::BI__builtin_logbl:
+  case Builtin::BI__builtin_logbf16:
+  case Builtin::BI__builtin_logbf128:
+    if (!EvaluateFloat(E->getArg(0), Result, Info))
+      return false;
+    if (Result.isZero()) {
+      Result = APFloat::getInf(Result.getSemantics(), /*Negative=*/true);
+      return true;
+    }
+    if (Result.isNaN() || Result.isInfinity())
+      return true;
+    int Exp = ilogb(Result);
+    Result = APFloat(Result.getSemantics());
+    Result.convertFromAPInt(APInt(32, Exp, true), true,
+                           APFloat::rmNearestTiesToEven);
+    return true;
+
+  case Builtin::BI__builtin_ldexp:
+  case Builtin::BI__builtin_ldexpf:
+  case Builtin::BI__builtin_ldexpl:
+  case Builtin::BI__builtin_ldexpf16:
+  case Builtin::BI__builtin_ldexpf128:
+  case Builtin::BI__builtin_scalbn:
+  case Builtin::BI__builtin_scalbnf:
+  case Builtin::BI__builtin_scalbnl:
+  case Builtin::BI__builtin_scalbnf16:
+  case Builtin::BI__builtin_scalbnf128:
+  case Builtin::BI__builtin_scalbln:
+  case Builtin::BI__builtin_scalblnf:
+  case Builtin::BI__builtin_scalblnl:
+  case Builtin::BI__builtin_scalblnf16:
+  case Builtin::BI__builtin_scalblnf128: {
+    APSInt Exp;
+    if (!EvaluateFloat(E->getArg(0), Result, Info) ||
+        !EvaluateInteger(E->getArg(1), Exp, Info))
+      return false;
+    Result = scalbn(Result, Exp.getExtValue(), llvm::RoundingMode::NearestTiesToEven);
+    return true;
+  }
+
+  case Builtin::BI__builtin_nextafter:
+  case Builtin::BI__builtin_nextafterf:
+  case Builtin::BI__builtin_nextafterl:
+  case Builtin::BI__builtin_nextafterf128:
+  case Builtin::BI__builtin_nexttoward:
+  case Builtin::BI__builtin_nexttowardf:
+  case Builtin::BI__builtin_nexttowardl:
+  case Builtin::BI__builtin_nexttowardf128: {
+    APFloat RHS(0.);
+    if (!EvaluateFloat(E->getArg(0), Result, Info) ||
+        !EvaluateFloat(E->getArg(1), RHS, Info))
+      return false;
+    if (Result.bitwiseIsEqual(RHS)) {
+      Result = RHS;
+    } else {
+      Result.next(Result.compare(RHS) == APFloat::cmpGreaterThan);
+    }
+    return true;
+  }
+
+  case Builtin::BI__builtin_remquo:
+  case Builtin::BI__builtin_remquof:
+  case Builtin::BI__builtin_remquol:
+  case Builtin::BI__builtin_remquof128: {
+    APFloat RHS(0.);
+    LValue PointerLVal;
+    if (!EvaluateFloat(E->getArg(0), Result, Info) ||
+        !EvaluateFloat(E->getArg(1), RHS, Info) ||
+        !EvaluatePointer(E->getArg(2), PointerLVal, Info))
+      return false;
+    
+    if (RHS.isZero() || Result.isInfinity()) {
+      Info.FFDiag(E, diag::note_constexpr_float_arithmetic) << 1;
+      return false;
+    }
+
+    APFloat Rem = Result;
+    Rem.remainder(RHS);
+    
+    // Quotient: round(x/y)
+    APFloat QuoF = Result;
+    QuoF.divide(RHS, APFloat::rmNearestTiesToEven);
+    QuoF.roundToIntegral(APFloat::rmNearestTiesToEven);
+    
+    APSInt Quo(Info.Ctx.getIntWidth(E->getArg(2)->getType()->getPointeeType()), false);
+    bool IsExact;
+    (void)QuoF.convertToInteger(Quo, APFloat::rmTowardZero, &IsExact);
+    // Standard says quo get the same sign as x/y and at least 3 low-order bits.
+    // We just provide the full integer.
+    
+    APValue APV{Quo};
+    if (!handleAssignment(Info, E, PointerLVal, E->getArg(2)->getType()->getPointeeType(), APV))
+      return false;
+    
+    Result = Rem;
+    return true;
+  }
+
+  case Builtin::BI__builtin_modf:
+  case Builtin::BI__builtin_modff:
+  case Builtin::BI__builtin_modfl:
+  case Builtin::BI__builtin_modff128: {
+    LValue PointerLVal;
+    if (!EvaluateFloat(E->getArg(0), Result, Info) ||
+        !EvaluatePointer(E->getArg(1), PointerLVal, Info))
+      return false;
+    
+    if (Result.isInfinity()) {
+      APValue APV{Result};
+      if (!handleAssignment(Info, E, PointerLVal, E->getArg(1)->getType()->getPointeeType(), APV))
+        return false;
+      Result = APFloat::getZero(Result.getSemantics(), Result.isNegative());
+      return true;
+    }
+
+    APFloat IPart = Result;
+    IPart.roundToIntegral(APFloat::rmTowardZero);
+    
+    APFloat FPart = Result;
+    (void)FPart.subtract(IPart, APFloat::rmNearestTiesToEven);
+    
+    APValue APV{IPart};
+    if (!handleAssignment(Info, E, PointerLVal, E->getArg(1)->getType()->getPointeeType(), APV))
+      return false;
+    
+    Result = FPart;
+    return true;
+  }
+
+  case Builtin::BI__builtin_frexp:
+  case Builtin::BI__builtin_frexpf:
+  case Builtin::BI__builtin_frexpl:
+  case Builtin::BI__builtin_frexpf128: {
+    LValue PointerLVal;
+    if (!EvaluateFloat(E->getArg(0), Result, Info) ||
+        !EvaluatePointer(E->getArg(1), PointerLVal, Info))
+      return false;
+    
+    int Exp = 0;
+    if (Result.isFiniteNonZero()) {
+      Exp = ilogb(Result) + 1;
+      Result = scalbn(Result, -Exp, APFloat::rmNearestTiesToEven);
+    } else {
+      Exp = 0;
+    }
+    
+    APSInt ExpAPS(Info.Ctx.getIntWidth(E->getArg(1)->getType()->getPointeeType()), false);
+    ExpAPS = Exp;
+    APValue APV{ExpAPS};
+    if (!handleAssignment(Info, E, PointerLVal, E->getArg(1)->getType()->getPointeeType(), APV))
+      return false;
+    
+    return true;
+  }
+
+  case Builtin::BI__builtin_creal:
+  case Builtin::BI__builtin_crealf:
+  case Builtin::BI__builtin_creall:
+  case Builtin::BI__builtin_crealf16:
+  case Builtin::BI__builtin_crealf128: {
+    ComplexValue V;
+    if (!EvaluateComplex(E->getArg(0), V, Info))
+      return false;
+    Result = V.getComplexFloatReal();
+    return true;
+  }
+
+  case Builtin::BI__builtin_cimag:
+  case Builtin::BI__builtin_cimagf:
+  case Builtin::BI__builtin_cimagl:
+  case Builtin::BI__builtin_cimagf16:
+  case Builtin::BI__builtin_cimagf128: {
+    ComplexValue V;
+    if (!EvaluateComplex(E->getArg(0), V, Info))
+      return false;
+    Result = V.getComplexFloatImag();
     return true;
   }
 
@@ -20472,6 +20845,39 @@ bool ComplexExprEvaluator::VisitCallExpr(const CallExpr *E) {
     if (!EvaluateFloat(E->getArg(1), Result.FloatImag, Info))
       return false;
     return true;
+
+  case Builtin::BI__builtin_conj:
+  case Builtin::BI__builtin_conjf:
+  case Builtin::BI__builtin_conjl:
+  case Builtin::BI__builtin_conjf16:
+  case Builtin::BI__builtin_conjf128: {
+    if (!EvaluateComplex(E->getArg(0), Result, Info))
+      return false;
+    if (Result.isComplexFloat())
+      Result.getComplexFloatImag().changeSign();
+    else
+      Result.getComplexIntImag() = -Result.getComplexIntImag();
+    return true;
+  }
+
+  case Builtin::BI__builtin_cproj:
+  case Builtin::BI__builtin_cprojf:
+  case Builtin::BI__builtin_cprojl:
+  case Builtin::BI__builtin_cprojf16:
+  case Builtin::BI__builtin_cprojf128: {
+    if (!EvaluateComplex(E->getArg(0), Result, Info))
+      return false;
+    if (Result.isComplexFloat()) {
+      if (Result.getComplexFloatReal().isInfinity() ||
+          Result.getComplexFloatImag().isInfinity()) {
+        Result.getComplexFloatReal() =
+            APFloat::getInf(Result.getComplexFloatReal().getSemantics(), false);
+        Result.getComplexFloatImag() = APFloat::getZero(
+            Result.getComplexFloatImag().getSemantics(), false);
+      }
+    }
+    return true;
+  }
 
   default:
     return false;

@@ -203,3 +203,32 @@ static_assert([] {
   return a;
 }() == 5);
 #endif
+
+namespace MathConstexpr {
+  constexpr double fmod1 = __builtin_fmod(5.5, 2.0);
+  static_assert(fmod1 == 1.5, "");
+
+  constexpr double ceil1 = __builtin_ceil(5.1);
+  static_assert(ceil1 == 6.0, "");
+  constexpr double ceil2 = __builtin_ceil(-5.9);
+  static_assert(ceil2 == -5.0, "");
+
+  constexpr double floor1 = __builtin_floor(5.9);
+  static_assert(floor1 == 5.0, "");
+  constexpr double floor2 = __builtin_floor(-5.1);
+  static_assert(floor2 == -6.0, "");
+
+  constexpr double round1 = __builtin_round(5.5);
+  static_assert(round1 == 6.0, "");
+  constexpr double round2 = __builtin_round(5.4);
+  static_assert(round2 == 5.0, "");
+  constexpr double round3 = __builtin_round(-5.5);
+  static_assert(round3 == -6.0, "");
+
+  constexpr double trunc1 = __builtin_trunc(5.9);
+  static_assert(trunc1 == 5.0, "");
+  constexpr double trunc2 = __builtin_trunc(-5.9);
+  static_assert(trunc2 == -5.0, "");
+
+  constexpr double fmod_err = __builtin_fmod(5.0, 0.0); // expected-error {{must be initialized by a constant expression}} expected-note {{produces a NaN}}
+}
