@@ -172,3 +172,21 @@ namespace PR51872_part1 {
   // expected-error@-1 {{no viable constructor or deduction guide for deduction of template arguments of 'T1'}}
   // expected-note@-7  {{candidate template ignored: could not match 'PR51872_part1::T1<value-parameter-0-0>' against 'int'}}
 }
+
+namespace GH209495 {
+template <typename X, typename Y> struct S {
+  static constexpr bool value = false;
+};
+
+template <typename X> struct S<int, int> { // expected-error {{partial specialization of 'S' does not use any of its template parameters}}
+  static constexpr float value = Foo::Bar() // expected-error {{use of undeclared identifier 'Foo'}} \
+                                            // expected-error {{constexpr variable 'value' must be initialized by a constant expression}}
+};
+
+template <typename T> struct SS { // expected-note {{template is declared here}}
+  template <typename U> SS(U &&) {}
+};
+
+template <typename A> SS(A) -> SS<A>; // expected-error {{deduction guide must be declared in the same scope as template 'SS'}}
+} // namespace GH209495
+

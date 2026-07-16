@@ -1475,7 +1475,11 @@ FunctionTemplateDecl *Sema::DeclareAggregateDeductionGuideFromInitList(
   }
 
   DeclContext *DC = Template->getDeclContext();
-  if (DC->isDependentContext())
+  if (DC->isDependentContext() || Template->isInvalidDecl() ||
+      DC->isInvalidDecl())
+    return nullptr;
+
+  if (Template->getTemplateParameters()->getDepth() > 0)
     return nullptr;
 
   ConvertConstructorToDeductionGuideTransform Transform(
@@ -1524,7 +1528,11 @@ void Sema::DeclareImplicitDeductionGuides(TemplateDecl *Template,
   }
 
   DeclContext *DC = Template->getDeclContext();
-  if (DC->isDependentContext())
+  if (DC->isDependentContext() || Template->isInvalidDecl() ||
+      DC->isInvalidDecl())
+    return;
+
+  if (Template->getTemplateParameters()->getDepth() > 0)
     return;
 
   ConvertConstructorToDeductionGuideTransform Transform(
