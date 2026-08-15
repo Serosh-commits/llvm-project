@@ -501,7 +501,7 @@ bool ForLoopIndexUseVisitor::TraverseUnaryOperator(UnaryOperator *Uop) {
     return true;
   }
 
-  return VisitorBase::TraverseUnaryOperator(Uop);
+  return DynamicRecursiveASTVisitor::TraverseUnaryOperator(Uop);
 }
 
 /// If the member expression is operator-> (overloaded or not) on
@@ -578,7 +578,7 @@ bool ForLoopIndexUseVisitor::TraverseMemberExpr(MemberExpr *Member) {
       return true;
     }
   }
-  return VisitorBase::TraverseMemberExpr(Member);
+  return DynamicRecursiveASTVisitor::TraverseMemberExpr(Member);
 }
 
 /// If a member function call is the at() accessor on the container with
@@ -593,7 +593,7 @@ bool ForLoopIndexUseVisitor::TraverseCXXMemberCallExpr(
   auto *Member =
       dyn_cast<MemberExpr>(MemberCall->getCallee()->IgnoreParenImpCasts());
   if (!Member)
-    return VisitorBase::TraverseCXXMemberCallExpr(MemberCall);
+    return DynamicRecursiveASTVisitor::TraverseCXXMemberCallExpr(MemberCall);
 
   // We specifically allow an accessor named "at" to let STL in, though
   // this is restricted to pseudo-arrays by requiring a single, integer
@@ -611,7 +611,7 @@ bool ForLoopIndexUseVisitor::TraverseCXXMemberCallExpr(
   if (containsExpr(Context, &DependentExprs, Member->getBase()))
     ConfidenceLevel.lowerTo(Confidence::CL_Risky);
 
-  return VisitorBase::TraverseCXXMemberCallExpr(MemberCall);
+  return DynamicRecursiveASTVisitor::TraverseCXXMemberCallExpr(MemberCall);
 }
 
 /// If an overloaded operator call is a dereference of IndexVar or
@@ -657,7 +657,7 @@ bool ForLoopIndexUseVisitor::TraverseCXXOperatorCallExpr(
   default:
     break;
   }
-  return VisitorBase::TraverseCXXOperatorCallExpr(OpCall);
+  return DynamicRecursiveASTVisitor::TraverseCXXOperatorCallExpr(OpCall);
 }
 
 /// If we encounter an array with IndexVar as the index of an
@@ -682,7 +682,7 @@ bool ForLoopIndexUseVisitor::TraverseCXXOperatorCallExpr(
 bool ForLoopIndexUseVisitor::TraverseArraySubscriptExpr(ArraySubscriptExpr *E) {
   Expr *Arr = E->getBase();
   if (!isIndexInSubscriptExpr(E->getIdx(), IndexVar))
-    return VisitorBase::TraverseArraySubscriptExpr(E);
+    return DynamicRecursiveASTVisitor::TraverseArraySubscriptExpr(E);
 
   if ((ContainerExpr && !areSameExpr(Context, Arr->IgnoreParenImpCasts(),
                                      ContainerExpr->IgnoreParenImpCasts())) ||
@@ -691,7 +691,7 @@ bool ForLoopIndexUseVisitor::TraverseArraySubscriptExpr(ArraySubscriptExpr *E) {
     // If we have already discovered the array being indexed and this isn't it
     // or this array doesn't match, mark this loop as unconvertible.
     OnlyUsedAsIndex = false;
-    return VisitorBase::TraverseArraySubscriptExpr(E);
+    return DynamicRecursiveASTVisitor::TraverseArraySubscriptExpr(E);
   }
 
   if (!ContainerExpr)
@@ -783,7 +783,7 @@ bool ForLoopIndexUseVisitor::TraverseLambdaCapture(LambdaExpr *LE,
     if (VDecl->isInitCapture())
       traverseStmtImpl(cast<VarDecl>(VDecl)->getInit());
   }
-  return VisitorBase::TraverseLambdaCapture(LE, C, Init);
+  return DynamicRecursiveASTVisitor::TraverseLambdaCapture(LE, C, Init);
 }
 
 /// If we find that another variable is created just to refer to the loop
@@ -817,7 +817,7 @@ bool ForLoopIndexUseVisitor::traverseStmtImpl(Stmt *S) {
   const Stmt *OldNextParent = NextStmtParent;
   CurrStmtParent = NextStmtParent;
   NextStmtParent = S;
-  const bool Result = VisitorBase::TraverseStmt(S);
+  const bool Result = DynamicRecursiveASTVisitor::TraverseStmt(S);
   NextStmtParent = OldNextParent;
   return Result;
 }

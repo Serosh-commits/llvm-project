@@ -20,7 +20,7 @@
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/NestedNameSpecifier.h"
 #include "clang/AST/PrettyPrinter.h"
-#include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/AST/DynamicRecursiveASTVisitor.h"
 #include "clang/AST/Stmt.h"
 #include "clang/AST/TemplateBase.h"
 #include "clang/AST/TypeLoc.h"
@@ -479,7 +479,7 @@ namespace {
 /// not have the deduced type set. Instead, we have to go to the appropriate
 /// DeclaratorDecl/FunctionDecl and work our back to the AutoType that does have
 /// a deduced type set. The AST should be improved to simplify this scenario.
-class DeducedTypeVisitor : public RecursiveASTVisitor<DeducedTypeVisitor> {
+class DeducedTypeVisitor : public DynamicRecursiveASTVisitor {
   SourceLocation SearchedLocation;
   const HeuristicResolver *Resolver;
 
@@ -493,7 +493,7 @@ public:
   //- decltype(auto) i = 1;
   //- auto& i = 1;
   //- auto* i = &a;
-  bool VisitDeclaratorDecl(DeclaratorDecl *D) {
+  bool VisitDeclaratorDecl(DeclaratorDecl *D) override {
     if (!D->getTypeSourceInfo() ||
         !D->getTypeSourceInfo()->getTypeLoc().getContainedAutoTypeLoc() ||
         D->getTypeSourceInfo()
@@ -522,7 +522,7 @@ public:
   //- auto foo() -> int {}
   //- auto foo() -> decltype(1+1) {}
   //- operator auto() const { return 10; }
-  bool VisitFunctionDecl(FunctionDecl *D) {
+  bool VisitFunctionDecl(FunctionDecl *D) override {
     if (!D->getTypeSourceInfo())
       return true;
     // Loc of auto in return type (c++14).
@@ -553,7 +553,7 @@ public:
   // Handle non-auto decltype, e.g.:
   // - auto foo() -> decltype(expr) {}
   // - decltype(expr);
-  bool VisitDecltypeTypeLoc(DecltypeTypeLoc TL) {
+  bool VisitDecltypeTypeLoc(DecltypeTypeLoc TL) override {
     if (TL.getBeginLoc() != SearchedLocation)
       return true;
 
@@ -811,13 +811,13 @@ const TemplateTypeParmType *getUnderlyingPackType(const ParmVarDecl *Param) {
 // expanded template type parameter pack) and forwarding parameters (passed to a
 // parameter that is an expanded template type parameter pack).
 class ForwardingCallVisitor
-    : public RecursiveASTVisitor<ForwardingCallVisitor> {
+    : public DynamicRecursiveASTVisitor {
 public:
   ForwardingCallVisitor(ArrayRef<const ParmVarDecl *> Parameters)
       : Parameters{Parameters},
         PackType{getUnderlyingPackType(Parameters.front())} {}
 
-  bool VisitCallExpr(CallExpr *E) {
+  bool VisitCallExpr(CallExpr *E) override {
     auto *Callee = getCalleeDeclOrUniqueOverload(E);
     if (Callee) {
       handleCall(Callee, E->arguments());
@@ -825,7 +825,7 @@ public:
     return !Info.has_value();
   }
 
-  bool VisitCXXConstructExpr(CXXConstructExpr *E) {
+  bool VisitCXXConstructExpr(CXXConstructExpr *E) override {
     auto *Callee = E->getConstructor();
     if (Callee) {
       handleCall(Callee, E->arguments());

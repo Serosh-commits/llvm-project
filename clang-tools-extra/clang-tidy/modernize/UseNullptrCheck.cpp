@@ -10,7 +10,7 @@
 #include "../utils/Matchers.h"
 #include "../utils/OptionsUtils.h"
 #include "clang/AST/ASTContext.h"
-#include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/AST/DynamicRecursiveASTVisitor.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/Lex/Lexer.h"
 
@@ -129,17 +129,17 @@ namespace {
 /// RecursiveASTVisitor for ensuring all nodes rooted at a given AST
 /// subtree that have file-level source locations corresponding to a macro
 /// argument have implicit NullTo(Member)Pointer nodes as ancestors.
-class MacroArgUsageVisitor : public RecursiveASTVisitor<MacroArgUsageVisitor> {
+class MacroArgUsageVisitor : public DynamicRecursiveASTVisitor {
 public:
   MacroArgUsageVisitor(SourceLocation CastLoc, const SourceManager &SM)
       : CastLoc(CastLoc), SM(SM) {
     assert(CastLoc.isFileID());
   }
 
-  bool TraverseStmt(Stmt *S) {
+  bool TraverseStmt(Stmt *S) override {
     const bool VisitedPreviously = Visited;
 
-    if (!RecursiveASTVisitor<MacroArgUsageVisitor>::TraverseStmt(S))
+    if (!DynamicRecursiveASTVisitor::TraverseStmt(S))
       return false;
 
     // The point at which VisitedPreviously is false and Visited is true is the
@@ -161,7 +161,7 @@ public:
     return true;
   }
 
-  bool VisitStmt(Stmt *S) {
+  bool VisitStmt(Stmt *S) override {
     if (SM.getFileLoc(S->getBeginLoc()) != CastLoc)
       return true;
     Visited = true;
@@ -174,12 +174,12 @@ public:
     return true;
   }
 
-  bool TraverseInitListExpr(InitListExpr *S) {
+  bool TraverseInitListExpr(InitListExpr *S) override {
     // Only go through the semantic form of the InitListExpr, because
     // ImplicitCast might not appear in the syntactic form, and this results in
     // finding usages of the macro argument that don't have a ImplicitCast as an
     // ancestor (thus invalidating the replacement) when they actually have.
-    return RecursiveASTVisitor<MacroArgUsageVisitor>::
+    return DynamicRecursiveASTVisitor::
         TraverseSynOrSemInitListExpr(
             S->isSemanticForm() ? S : S->getSemanticForm());
   }
@@ -206,25 +206,25 @@ private:
 /// sequences with an implicit cast to null within and creates a replacement
 /// leaving the outermost explicit cast unchanged to avoid introducing
 /// ambiguities.
-class CastSequenceVisitor : public RecursiveASTVisitor<CastSequenceVisitor> {
+class CastSequenceVisitor : public DynamicRecursiveASTVisitor {
 public:
   CastSequenceVisitor(ASTContext &Context, ArrayRef<StringRef> NullMacros,
                       ClangTidyCheck &Check)
       : SM(Context.getSourceManager()), Context(Context),
         NullMacros(NullMacros), Check(Check) {}
 
-  bool TraverseStmt(Stmt *S) {
+  bool TraverseStmt(Stmt *S) override {
     // Stop traversing down the tree if requested.
     if (PruneSubtree) {
       PruneSubtree = false;
       return true;
     }
-    return RecursiveASTVisitor<CastSequenceVisitor>::TraverseStmt(S);
+    return DynamicRecursiveASTVisitor::TraverseStmt(S);
   }
 
   // Only VisitStmt is overridden as we shouldn't find other base AST types
   // within a cast expression.
-  bool VisitStmt(Stmt *S) {
+  bool VisitStmt(Stmt *S) override {
     auto *C = dyn_cast<CastExpr>(S);
     // Catch the castExpr inside cxxDefaultArgExpr.
     if (auto *E = dyn_cast<CXXDefaultArgExpr>(S)) {
