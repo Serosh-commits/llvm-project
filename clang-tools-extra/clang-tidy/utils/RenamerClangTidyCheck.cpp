@@ -9,7 +9,7 @@
 #include "RenamerClangTidyCheck.h"
 #include "ASTUtils.h"
 #include "clang/AST/CXXInheritance.h"
-#include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/AST/DynamicRecursiveASTVisitor.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/Basic/CharInfo.h"
 #include "clang/Frontend/CompilerInstance.h"
@@ -212,18 +212,17 @@ private:
 };
 
 class RenamerClangTidyVisitor
-    : public RecursiveASTVisitor<RenamerClangTidyVisitor> {
+    : public DynamicRecursiveASTVisitor {
 public:
   RenamerClangTidyVisitor(RenamerClangTidyCheck *Check, const SourceManager &SM,
                           bool AggressiveDependentMemberLookup)
       : Check(Check), SM(SM),
-        AggressiveDependentMemberLookup(AggressiveDependentMemberLookup) {}
+        AggressiveDependentMemberLookup(AggressiveDependentMemberLookup) {
+    ShouldVisitTemplateInstantiations = true;
+    ShouldVisitImplicitCode = false;
+  }
 
-  bool shouldVisitTemplateInstantiations() const { return true; }
-
-  bool shouldVisitImplicitCode() const { return false; }
-
-  bool VisitCXXConstructorDecl(CXXConstructorDecl *Decl) {
+  bool VisitCXXConstructorDecl(CXXConstructorDecl *Decl) override {
     if (Decl->isImplicit())
       return true;
     Check->addUsage(Decl->getParent(), Decl->getNameInfo().getSourceRange(),
@@ -241,7 +240,7 @@ public:
     return true;
   }
 
-  bool VisitCXXDestructorDecl(CXXDestructorDecl *Decl) {
+  bool VisitCXXDestructorDecl(CXXDestructorDecl *Decl) override {
     if (Decl->isImplicit())
       return true;
     SourceRange Range = Decl->getNameInfo().getSourceRange();
@@ -255,20 +254,20 @@ public:
     return true;
   }
 
-  bool VisitUsingDecl(UsingDecl *Decl) {
+  bool VisitUsingDecl(UsingDecl *Decl) override {
     for (const auto *Shadow : Decl->shadows())
       Check->addUsage(Shadow->getTargetDecl(),
                       Decl->getNameInfo().getSourceRange(), SM);
     return true;
   }
 
-  bool VisitUsingDirectiveDecl(UsingDirectiveDecl *Decl) {
+  bool VisitUsingDirectiveDecl(UsingDirectiveDecl *Decl) override {
     Check->addUsage(Decl->getNominatedNamespaceAsWritten(),
                     Decl->getIdentLocation(), SM);
     return true;
   }
 
-  bool VisitNamedDecl(NamedDecl *Decl) {
+  bool VisitNamedDecl(NamedDecl *Decl) override {
     const SourceRange UsageRange =
         DeclarationNameInfo(Decl->getDeclName(), Decl->getLocation())
             .getSourceRange();
@@ -276,13 +275,13 @@ public:
     return true;
   }
 
-  bool VisitDeclRefExpr(DeclRefExpr *DeclRef) {
+  bool VisitDeclRefExpr(DeclRefExpr *DeclRef) override {
     const SourceRange Range = DeclRef->getNameInfo().getSourceRange();
     Check->addUsage(DeclRef->getDecl(), Range, SM);
     return true;
   }
 
-  bool TraverseNestedNameSpecifierLoc(NestedNameSpecifierLoc Loc) {
+  bool TraverseNestedNameSpecifierLoc(NestedNameSpecifierLoc Loc) override {
     if (const NestedNameSpecifier Spec = Loc.getNestedNameSpecifier();
         Spec.getKind() == NestedNameSpecifier::Kind::Namespace) {
       if (const auto *Decl =
@@ -290,18 +289,17 @@ public:
         Check->addUsage(Decl, Loc.getLocalSourceRange(), SM);
     }
 
-    using Base = RecursiveASTVisitor<RenamerClangTidyVisitor>;
-    return Base::TraverseNestedNameSpecifierLoc(Loc);
+    return DynamicRecursiveASTVisitor::TraverseNestedNameSpecifierLoc(Loc);
   }
 
-  bool VisitMemberExpr(MemberExpr *MemberRef) {
+  bool VisitMemberExpr(MemberExpr *MemberRef) override {
     const SourceRange Range = MemberRef->getMemberNameInfo().getSourceRange();
     Check->addUsage(MemberRef->getMemberDecl(), Range, SM);
     return true;
   }
 
   bool
-  VisitCXXDependentScopeMemberExpr(CXXDependentScopeMemberExpr *DepMemberRef) {
+  VisitCXXDependentScopeMemberExpr(CXXDependentScopeMemberExpr *DepMemberRef) override {
     const QualType BaseType =
         DepMemberRef->isArrow() ? DepMemberRef->getBaseType()->getPointeeType()
                                 : DepMemberRef->getBaseType();

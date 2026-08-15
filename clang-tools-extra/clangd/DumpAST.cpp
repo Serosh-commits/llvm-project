@@ -15,7 +15,7 @@
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/NestedNameSpecifier.h"
 #include "clang/AST/PrettyPrinter.h"
-#include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/AST/DynamicRecursiveASTVisitor.h"
 #include "clang/AST/TextNodeDumper.h"
 #include "clang/AST/Type.h"
 #include "clang/AST/TypeLoc.h"
@@ -43,9 +43,7 @@ bool isInjectedClassName(Decl *D) {
   return false;
 }
 
-class DumpVisitor : public RecursiveASTVisitor<DumpVisitor> {
-  using Base = RecursiveASTVisitor<DumpVisitor>;
-
+class DumpVisitor : public DynamicRecursiveASTVisitor {
   const syntax::TokenBuffer &Tokens;
   const ASTContext &Ctx;
 
@@ -337,68 +335,68 @@ public:
   // Override traversal to record the nodes we care about.
   // Generally, these are nodes with position information (TypeLoc, not Type).
 
-  bool TraverseDecl(Decl *D) {
+  bool TraverseDecl(Decl *D) override {
     return !D || isInjectedClassName(D) ||
-           traverseNode("declaration", D, [&] { Base::TraverseDecl(D); });
+           traverseNode("declaration", D, [&] { DynamicRecursiveASTVisitor::TraverseDecl(D); });
   }
-  bool TraverseTypeLoc(TypeLoc TL, bool TraverseQualifier = true) {
+  bool TraverseTypeLoc(TypeLoc TL, bool TraverseQualifier = true) override {
     return !TL || traverseNode("type", TL, [&] {
-      Base::TraverseTypeLoc(TL, TraverseQualifier);
+      DynamicRecursiveASTVisitor::TraverseTypeLoc(TL, TraverseQualifier);
     });
   }
-  bool TraverseTemplateName(const TemplateName &TN) {
+  bool TraverseTemplateName(TemplateName TN) override {
     return traverseNode("template name", TN,
-                        [&] { Base::TraverseTemplateName(TN); });
+                        [&] { DynamicRecursiveASTVisitor::TraverseTemplateName(TN); });
   }
-  bool TraverseTemplateArgumentLoc(const TemplateArgumentLoc &TAL) {
+  bool TraverseTemplateArgumentLoc(const TemplateArgumentLoc &TAL) override {
     return traverseNode("template argument", TAL,
-                        [&] { Base::TraverseTemplateArgumentLoc(TAL); });
+                        [&] { DynamicRecursiveASTVisitor::TraverseTemplateArgumentLoc(TAL); });
   }
-  bool TraverseNestedNameSpecifierLoc(NestedNameSpecifierLoc NNSL) {
+  bool TraverseNestedNameSpecifierLoc(NestedNameSpecifierLoc NNSL) override {
     return !NNSL || traverseNode("specifier", NNSL, [&] {
-      Base::TraverseNestedNameSpecifierLoc(NNSL);
+      DynamicRecursiveASTVisitor::TraverseNestedNameSpecifierLoc(NNSL);
     });
   }
-  bool TraverseConstructorInitializer(CXXCtorInitializer *CCI) {
+  bool TraverseConstructorInitializer(CXXCtorInitializer *CCI) override {
     return !CCI || traverseNode("constructor initializer", CCI, [&] {
-      Base::TraverseConstructorInitializer(CCI);
+      DynamicRecursiveASTVisitor::TraverseConstructorInitializer(CCI);
     });
   }
-  bool TraverseAttr(Attr *A) {
-    return !A || traverseNode("attribute", A, [&] { Base::TraverseAttr(A); });
+  bool TraverseAttr(Attr *A) override {
+    return !A || traverseNode("attribute", A, [&] { DynamicRecursiveASTVisitor::TraverseAttr(A); });
   }
-  bool TraverseConceptReference(ConceptReference *C) {
+  bool TraverseConceptReference(ConceptReference *C) override {
     return !C || traverseNode("reference", C,
-                              [&] { Base::TraverseConceptReference(C); });
+                              [&] { DynamicRecursiveASTVisitor::TraverseConceptReference(C); });
   }
-  bool TraverseCXXBaseSpecifier(const CXXBaseSpecifier &CBS) {
+  bool TraverseCXXBaseSpecifier(const CXXBaseSpecifier &CBS) override {
     return traverseNode("base", CBS,
-                        [&] { Base::TraverseCXXBaseSpecifier(CBS); });
+                        [&] { DynamicRecursiveASTVisitor::TraverseCXXBaseSpecifier(CBS); });
   }
   // Stmt is the same, but this form allows the data recursion optimization.
-  bool dataTraverseStmtPre(Stmt *S) {
+  bool dataTraverseStmtPre(Stmt *S) override {
     return S && traverseNodePre(isa<Expr>(S) ? "expression" : "statement", S);
   }
-  bool dataTraverseStmtPost(Stmt *X) { return traverseNodePost(); }
+  bool dataTraverseStmtPost(Stmt *X) override { return traverseNodePost(); }
 
   // QualifiedTypeLoc is handled strangely in RecursiveASTVisitor: the derived
   // TraverseTypeLoc is not called for the inner UnqualTypeLoc.
   // This means we'd never see 'int' in 'const int'! Work around that here.
   // (The reason for the behavior is to avoid traversing the nested Type twice,
   // but we ignore TraverseType anyway).
-  bool TraverseQualifiedTypeLoc(QualifiedTypeLoc QTL, bool TraverseQualifier) {
+  bool TraverseQualifiedTypeLoc(QualifiedTypeLoc QTL, bool TraverseQualifier = true) override {
     return TraverseTypeLoc(QTL.getUnqualifiedLoc());
   }
   // Uninteresting parts of the AST that don't have locations within them.
-  bool TraverseNestedNameSpecifier(NestedNameSpecifier) { return true; }
-  bool TraverseType(QualType) { return true; }
+  bool TraverseNestedNameSpecifier(NestedNameSpecifier) override { return true; }
+  bool TraverseType(QualType, bool TraverseQualifier = true) override { return true; }
 
   // OpaqueValueExpr blocks traversal, we must explicitly traverse it.
-  bool TraverseOpaqueValueExpr(OpaqueValueExpr *E) {
+  bool TraverseOpaqueValueExpr(OpaqueValueExpr *E) override {
     return TraverseStmt(E->getSourceExpr());
   }
   // We only want to traverse the *syntactic form* to understand the selection.
-  bool TraversePseudoObjectExpr(PseudoObjectExpr *E) {
+  bool TraversePseudoObjectExpr(PseudoObjectExpr *E) override {
     return TraverseStmt(E->getSyntacticForm());
   }
 };

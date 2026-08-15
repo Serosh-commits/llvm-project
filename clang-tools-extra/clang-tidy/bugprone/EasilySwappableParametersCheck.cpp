@@ -9,7 +9,7 @@
 #include "EasilySwappableParametersCheck.h"
 #include "../utils/OptionsUtils.h"
 #include "clang/AST/ASTContext.h"
-#include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/AST/DynamicRecursiveASTVisitor.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/Lex/Lexer.h"
 #include "llvm/ADT/SmallSet.h"
@@ -1598,9 +1598,7 @@ static bool lazyMapOfSetsIntersectionExists(const MapTy &Map, const ElemTy &E1,
 /// a usage for both in the same strict expression subtree. A strict
 /// expression subtree is a tree which only includes Expr nodes, i.e. no
 /// Stmts and no Decls.
-class AppearsInSameExpr : public RecursiveASTVisitor<AppearsInSameExpr> {
-  using Base = RecursiveASTVisitor<AppearsInSameExpr>;
-
+class AppearsInSameExpr : public DynamicRecursiveASTVisitor {
   const FunctionDecl *FD;
   const Expr *CurrentExprOnlyTreeRoot = nullptr;
   llvm::DenseMap<const ParmVarDecl *,
@@ -1618,12 +1616,12 @@ public:
                                            Param2);
   }
 
-  bool TraverseDecl(Decl *D) {
+  bool TraverseDecl(Decl *D) override {
     CurrentExprOnlyTreeRoot = nullptr;
-    return Base::TraverseDecl(D);
+    return DynamicRecursiveASTVisitor::TraverseDecl(D);
   }
 
-  bool TraverseStmt(Stmt *S, DataRecursionQueue *Queue = nullptr) {
+  bool TraverseStmt(Stmt *S) override {
     if (auto *E = dyn_cast_or_null<Expr>(S)) {
       bool RootSetInCurrentStackFrame = false;
       if (!CurrentExprOnlyTreeRoot) {
@@ -1631,7 +1629,7 @@ public:
         RootSetInCurrentStackFrame = true;
       }
 
-      const bool Ret = Base::TraverseStmt(S);
+      const bool Ret = DynamicRecursiveASTVisitor::TraverseStmt(S);
 
       if (RootSetInCurrentStackFrame)
         CurrentExprOnlyTreeRoot = nullptr;
@@ -1641,10 +1639,10 @@ public:
 
     // A Stmt breaks the strictly Expr subtree.
     CurrentExprOnlyTreeRoot = nullptr;
-    return Base::TraverseStmt(S);
+    return DynamicRecursiveASTVisitor::TraverseStmt(S);
   }
 
-  bool VisitDeclRefExpr(DeclRefExpr *DRE) {
+  bool VisitDeclRefExpr(DeclRefExpr *DRE) override {
     if (!CurrentExprOnlyTreeRoot)
       return true;
 

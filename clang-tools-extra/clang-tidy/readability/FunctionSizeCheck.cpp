@@ -7,7 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "FunctionSizeCheck.h"
-#include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/AST/DynamicRecursiveASTVisitor.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "llvm/ADT/BitVector.h"
 
@@ -16,11 +16,9 @@ using namespace clang::ast_matchers;
 namespace clang::tidy::readability {
 namespace {
 
-class FunctionASTVisitor : public RecursiveASTVisitor<FunctionASTVisitor> {
-  using Base = RecursiveASTVisitor<FunctionASTVisitor>;
-
+class FunctionASTVisitor : public DynamicRecursiveASTVisitor {
 public:
-  bool VisitVarDecl(VarDecl *VD) {
+  bool VisitVarDecl(VarDecl *VD) override {
     // Do not count function params.
     // Do not count decomposition declarations (C++17's structured bindings).
     if (StructNesting == 0 &&
@@ -28,16 +26,16 @@ public:
       ++Info.Variables;
     return true;
   }
-  bool VisitBindingDecl(BindingDecl *BD) {
+  bool VisitBindingDecl(BindingDecl *BD) override {
     // Do count each of the bindings (in the decomposition declaration).
     if (StructNesting == 0)
       ++Info.Variables;
     return true;
   }
 
-  bool TraverseStmt(Stmt *Node) {
+  bool TraverseStmt(Stmt *Node) override {
     if (!Node)
-      return Base::TraverseStmt(Node);
+      return DynamicRecursiveASTVisitor::TraverseStmt(Node);
 
     if (TrackedParent.back() && !isa<CompoundStmt>(Node))
       ++Info.Statements;
@@ -59,14 +57,14 @@ public:
       break;
     }
 
-    Base::TraverseStmt(Node);
+    DynamicRecursiveASTVisitor::TraverseStmt(Node);
 
     TrackedParent.pop_back();
 
     return true;
   }
 
-  bool TraverseCompoundStmt(CompoundStmt *Node) {
+  bool TraverseCompoundStmt(CompoundStmt *Node) override {
     // If this new compound statement is located in a compound statement, which
     // is already nested NestingThreshold levels deep, record the start location
     // of this new compound statement.
@@ -74,45 +72,45 @@ public:
       Info.NestingThresholders.push_back(Node->getBeginLoc());
 
     ++CurrentNestingLevel;
-    Base::TraverseCompoundStmt(Node);
+    DynamicRecursiveASTVisitor::TraverseCompoundStmt(Node);
     --CurrentNestingLevel;
 
     return true;
   }
 
-  bool TraverseDecl(Decl *Node) {
+  bool TraverseDecl(Decl *Node) override {
     TrackedParent.push_back(false);
-    Base::TraverseDecl(Node);
+    DynamicRecursiveASTVisitor::TraverseDecl(Node);
     TrackedParent.pop_back();
     return true;
   }
 
-  bool TraverseLambdaExpr(LambdaExpr *Node) {
+  bool TraverseLambdaExpr(LambdaExpr *Node) override {
     ++StructNesting;
-    Base::TraverseLambdaExpr(Node);
+    DynamicRecursiveASTVisitor::TraverseLambdaExpr(Node);
     --StructNesting;
     return true;
   }
 
-  bool TraverseCXXRecordDecl(CXXRecordDecl *Node) {
+  bool TraverseCXXRecordDecl(CXXRecordDecl *Node) override {
     ++StructNesting;
-    Base::TraverseCXXRecordDecl(Node);
+    DynamicRecursiveASTVisitor::TraverseCXXRecordDecl(Node);
     --StructNesting;
     return true;
   }
 
-  bool TraverseStmtExpr(StmtExpr *SE) {
+  bool TraverseStmtExpr(StmtExpr *SE) override {
     ++StructNesting;
-    Base::TraverseStmtExpr(SE);
+    DynamicRecursiveASTVisitor::TraverseStmtExpr(SE);
     --StructNesting;
     return true;
   }
 
-  bool TraverseConstructorInitializer(CXXCtorInitializer *Init) {
+  bool TraverseConstructorInitializer(CXXCtorInitializer *Init) override {
     if (CountMemberInitAsStmt)
       ++Info.Statements;
 
-    Base::TraverseConstructorInitializer(Init);
+    DynamicRecursiveASTVisitor::TraverseConstructorInitializer(Init);
     return true;
   }
 

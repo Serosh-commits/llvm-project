@@ -20,7 +20,7 @@
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/DeclarationName.h"
 #include "clang/AST/ExprCXX.h"
-#include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/AST/DynamicRecursiveASTVisitor.h"
 #include "clang/AST/Type.h"
 #include "clang/AST/TypeLoc.h"
 #include "clang/Basic/LangOptions.h"
@@ -638,33 +638,31 @@ std::optional<HighlightingModifier> scopeModifier(const Type *T) {
 /// Produces highlightings, which are not captured by findExplicitReferences,
 /// e.g. highlights dependent names and 'auto' as the underlying type.
 class CollectExtraHighlightings
-    : public RecursiveASTVisitor<CollectExtraHighlightings> {
-  using Base = RecursiveASTVisitor<CollectExtraHighlightings>;
-
+    : public DynamicRecursiveASTVisitor {
 public:
   CollectExtraHighlightings(HighlightingsBuilder &H) : H(H) {}
 
-  bool VisitCXXConstructExpr(CXXConstructExpr *E) {
+  bool VisitCXXConstructExpr(CXXConstructExpr *E) override {
     highlightMutableReferenceArguments(E->getConstructor(),
                                        {E->getArgs(), E->getNumArgs()});
 
     return true;
   }
 
-  bool TraverseConstructorInitializer(CXXCtorInitializer *Init) {
+  bool TraverseConstructorInitializer(CXXCtorInitializer *Init) override {
     if (Init->isMemberInitializer())
       if (auto *Member = Init->getMember())
         highlightMutableReferenceArgument(Member->getType(), Init->getInit());
-    return Base::TraverseConstructorInitializer(Init);
+    return DynamicRecursiveASTVisitor::TraverseConstructorInitializer(Init);
   }
 
-  bool TraverseTypeConstraint(const TypeConstraint *C) {
+  bool TraverseTypeConstraint(const TypeConstraint *C) override {
     if (auto *Args = C->getTemplateArgsAsWritten())
       H.addAngleBracketTokens(Args->getLAngleLoc(), Args->getRAngleLoc());
-    return Base::TraverseTypeConstraint(C);
+    return DynamicRecursiveASTVisitor::TraverseTypeConstraint(C);
   }
 
-  bool VisitPredefinedExpr(PredefinedExpr *E) {
+  bool VisitPredefinedExpr(PredefinedExpr *E) override {
     H.addToken(E->getLocation(), HighlightingKind::LocalVariable)
         .addModifier(HighlightingModifier::Static)
         .addModifier(HighlightingModifier::Readonly)
@@ -672,19 +670,19 @@ public:
     return true;
   }
 
-  bool VisitConceptSpecializationExpr(ConceptSpecializationExpr *E) {
+  bool VisitConceptSpecializationExpr(ConceptSpecializationExpr *E) override {
     if (auto *Args = E->getTemplateArgsAsWritten())
       H.addAngleBracketTokens(Args->getLAngleLoc(), Args->getRAngleLoc());
     return true;
   }
 
-  bool VisitTemplateDecl(TemplateDecl *D) {
+  bool VisitTemplateDecl(TemplateDecl *D) override {
     if (auto *TPL = D->getTemplateParameters())
       H.addAngleBracketTokens(TPL->getLAngleLoc(), TPL->getRAngleLoc());
     return true;
   }
 
-  bool VisitTagDecl(TagDecl *D) {
+  bool VisitTagDecl(TagDecl *D) override {
     for (unsigned i = 0; i < D->getNumTemplateParameterLists(); ++i) {
       if (auto *TPL = D->getTemplateParameterList(i))
         H.addAngleBracketTokens(TPL->getLAngleLoc(), TPL->getRAngleLoc());
@@ -693,42 +691,42 @@ public:
   }
 
   bool
-  VisitClassTemplateSpecializationDecl(ClassTemplateSpecializationDecl *D) {
+  VisitClassTemplateSpecializationDecl(ClassTemplateSpecializationDecl *D) override {
     if (auto *Args = D->getTemplateArgsAsWritten())
       H.addAngleBracketTokens(Args->getLAngleLoc(), Args->getRAngleLoc());
     return true;
   }
 
   bool VisitClassTemplatePartialSpecializationDecl(
-      ClassTemplatePartialSpecializationDecl *D) {
+      ClassTemplatePartialSpecializationDecl *D) override {
     if (auto *TPL = D->getTemplateParameters())
       H.addAngleBracketTokens(TPL->getLAngleLoc(), TPL->getRAngleLoc());
     return true;
   }
 
-  bool VisitVarTemplateSpecializationDecl(VarTemplateSpecializationDecl *D) {
+  bool VisitVarTemplateSpecializationDecl(VarTemplateSpecializationDecl *D) override {
     if (auto *Args = D->getTemplateArgsAsWritten())
       H.addAngleBracketTokens(Args->getLAngleLoc(), Args->getRAngleLoc());
     return true;
   }
 
   bool VisitVarTemplatePartialSpecializationDecl(
-      VarTemplatePartialSpecializationDecl *D) {
+      VarTemplatePartialSpecializationDecl *D) override {
     if (auto *TPL = D->getTemplateParameters())
       H.addAngleBracketTokens(TPL->getLAngleLoc(), TPL->getRAngleLoc());
     return true;
   }
 
-  bool VisitDeclRefExpr(DeclRefExpr *E) {
+  bool VisitDeclRefExpr(DeclRefExpr *E) override {
     H.addAngleBracketTokens(E->getLAngleLoc(), E->getRAngleLoc());
     return true;
   }
-  bool VisitMemberExpr(MemberExpr *E) {
+  bool VisitMemberExpr(MemberExpr *E) override {
     H.addAngleBracketTokens(E->getLAngleLoc(), E->getRAngleLoc());
     return true;
   }
 
-  bool VisitFunctionDecl(FunctionDecl *D) {
+  bool VisitFunctionDecl(FunctionDecl *D) override {
     if (D->isOverloadedOperator()) {
       const auto AddOpDeclToken = [&](SourceLocation Loc) {
         auto &Token = H.addToken(Loc, HighlightingKind::Operator)
@@ -747,7 +745,7 @@ public:
     return true;
   }
 
-  bool VisitCXXOperatorCallExpr(CXXOperatorCallExpr *E) {
+  bool VisitCXXOperatorCallExpr(CXXOperatorCallExpr *E) override {
     const auto AddOpToken = [&](SourceLocation Loc) {
       H.addToken(Loc, HighlightingKind::Operator)
           .addModifier(HighlightingModifier::UserDefined);
@@ -761,47 +759,47 @@ public:
     return true;
   }
 
-  bool VisitUnaryOperator(UnaryOperator *Op) {
+  bool VisitUnaryOperator(UnaryOperator *Op) override {
     auto &Token = H.addToken(Op->getOperatorLoc(), HighlightingKind::Operator);
     if (Op->getSubExpr()->isTypeDependent())
       Token.addModifier(HighlightingModifier::UserDefined);
     return true;
   }
 
-  bool VisitBinaryOperator(BinaryOperator *Op) {
+  bool VisitBinaryOperator(BinaryOperator *Op) override {
     auto &Token = H.addToken(Op->getOperatorLoc(), HighlightingKind::Operator);
     if (Op->getLHS()->isTypeDependent() || Op->getRHS()->isTypeDependent())
       Token.addModifier(HighlightingModifier::UserDefined);
     return true;
   }
 
-  bool VisitConditionalOperator(ConditionalOperator *Op) {
+  bool VisitConditionalOperator(ConditionalOperator *Op) override {
     H.addToken(Op->getQuestionLoc(), HighlightingKind::Operator);
     H.addToken(Op->getColonLoc(), HighlightingKind::Operator);
     return true;
   }
 
-  bool VisitCXXNewExpr(CXXNewExpr *E) {
+  bool VisitCXXNewExpr(CXXNewExpr *E) override {
     auto &Token = H.addToken(E->getBeginLoc(), HighlightingKind::Operator);
     if (isa_and_present<CXXMethodDecl>(E->getOperatorNew()))
       Token.addModifier(HighlightingModifier::UserDefined);
     return true;
   }
 
-  bool VisitCXXDeleteExpr(CXXDeleteExpr *E) {
+  bool VisitCXXDeleteExpr(CXXDeleteExpr *E) override {
     auto &Token = H.addToken(E->getBeginLoc(), HighlightingKind::Operator);
     if (isa_and_present<CXXMethodDecl>(E->getOperatorDelete()))
       Token.addModifier(HighlightingModifier::UserDefined);
     return true;
   }
 
-  bool VisitCXXNamedCastExpr(CXXNamedCastExpr *E) {
+  bool VisitCXXNamedCastExpr(CXXNamedCastExpr *E) override {
     const auto &B = E->getAngleBrackets();
     H.addAngleBracketTokens(B.getBegin(), B.getEnd());
     return true;
   }
 
-  bool VisitCallExpr(CallExpr *E) {
+  bool VisitCallExpr(CallExpr *E) override {
     // Highlighting parameters passed by non-const reference does not really
     // make sense for literals...
     if (isa<UserDefinedLiteral>(E))

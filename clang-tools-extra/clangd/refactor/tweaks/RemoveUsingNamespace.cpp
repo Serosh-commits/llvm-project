@@ -21,19 +21,16 @@
 namespace clang {
 namespace clangd {
 namespace {
-/// Removes the 'using namespace' under the cursor and qualifies all accesses in
-/// the current file. E.g.,
+
+/// Removes `using namespace xxx;` directive.
+/// Before:
 ///   using namespace std;
-///   vector<int> foo(std::map<int, int>);
-/// Would become:
-///   std::vector<int> foo(std::map<int, int>);
-/// Currently limited to using namespace directives inside global namespace to
-/// simplify implementation. Also the namespace must not contain using
-/// directives.
+///   vector<int> foo;
+/// After:
+///   std::vector<int> foo;
 class RemoveUsingNamespace : public Tweak {
 public:
   const char *id() const override;
-
   bool prepare(const Selection &Inputs) override;
   Expected<Effect> apply(const Selection &Inputs) override;
   std::string title() const override {
@@ -48,14 +45,14 @@ private:
 };
 REGISTER_TWEAK(RemoveUsingNamespace)
 
-class FindSameUsings : public RecursiveASTVisitor<FindSameUsings> {
+class FindSameUsings : public DynamicRecursiveASTVisitor {
 public:
   FindSameUsings(const UsingDirectiveDecl &Target,
                  std::vector<const UsingDirectiveDecl *> &Results)
       : TargetNS(Target.getNominatedNamespace()),
         TargetCtx(Target.getDeclContext()), Results(Results) {}
 
-  bool VisitUsingDirectiveDecl(UsingDirectiveDecl *D) {
+  bool VisitUsingDirectiveDecl(UsingDirectiveDecl *D) override {
     if (D->getNominatedNamespace() != TargetNS ||
         D->getDeclContext() != TargetCtx)
       return true;

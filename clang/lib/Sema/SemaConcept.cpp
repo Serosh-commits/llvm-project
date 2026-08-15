@@ -16,7 +16,7 @@
 #include "clang/AST/ASTLambda.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/ExprConcepts.h"
-#include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/AST/DynamicRecursiveASTVisitor.h"
 #include "clang/Basic/OperatorPrecedence.h"
 #include "clang/Sema/EnterExpressionEvaluationContext.h"
 #include "clang/Sema/Initialization.h"
@@ -253,11 +253,7 @@ public:
 
 namespace {
 
-// FIXME: Convert it to DynamicRecursiveASTVisitor
-class HashParameterMapping : public RecursiveASTVisitor<HashParameterMapping> {
-  using inherited = RecursiveASTVisitor<HashParameterMapping>;
-  friend inherited;
-
+class HashParameterMapping : public DynamicRecursiveASTVisitor {
   Sema &SemaRef;
   const MultiLevelTemplateArgumentList &TemplateArgs;
   llvm::FoldingSetNodeID &ID;
@@ -265,17 +261,17 @@ class HashParameterMapping : public RecursiveASTVisitor<HashParameterMapping> {
 
   UnsignedOrNone OuterPackSubstIndex;
 
-  bool shouldVisitTemplateInstantiations() const { return true; }
-
 public:
   HashParameterMapping(Sema &SemaRef,
                        const MultiLevelTemplateArgumentList &TemplateArgs,
                        llvm::FoldingSetNodeID &ID,
                        UnsignedOrNone OuterPackSubstIndex)
       : SemaRef(SemaRef), TemplateArgs(TemplateArgs), ID(ID),
-        OuterPackSubstIndex(OuterPackSubstIndex) {}
+        OuterPackSubstIndex(OuterPackSubstIndex) {
+    ShouldVisitTemplateInstantiations = true;
+  }
 
-  bool VisitTemplateTypeParmType(TemplateTypeParmType *T) {
+  bool VisitTemplateTypeParmType(TemplateTypeParmType *T) override {
     // A lambda expression can introduce template parameters that don't have
     // corresponding template arguments yet.
     if (T->getDepth() >= TemplateArgs.getNumLevels())
@@ -300,7 +296,7 @@ public:
     return true;
   }
 
-  bool VisitDeclRefExpr(DeclRefExpr *E) {
+  bool VisitDeclRefExpr(DeclRefExpr *E) override {
     NamedDecl *D = E->getDecl();
     NonTypeTemplateParmDecl *NTTP = dyn_cast<NonTypeTemplateParmDecl>(D);
     if (!NTTP)
@@ -324,35 +320,35 @@ public:
     return true;
   }
 
-  bool VisitTypedefType(TypedefType *TT) {
-    return inherited::TraverseType(TT->desugar());
+  bool VisitTypedefType(TypedefType *TT) override {
+    return DynamicRecursiveASTVisitor::TraverseType(TT->desugar());
   }
 
-  bool TraverseDecl(Decl *D) {
-    if (auto *VD = dyn_cast<ValueDecl>(D)) {
+  bool TraverseDecl(Decl *D) override {
+    if (auto *VD = dyn_cast_or_null<ValueDecl>(D)) {
       if (auto *Var = dyn_cast<VarDecl>(VD))
         TraverseStmt(Var->getInit());
       return TraverseType(VD->getType());
     }
 
-    return inherited::TraverseDecl(D);
+    return DynamicRecursiveASTVisitor::TraverseDecl(D);
   }
 
-  bool TraverseCallExpr(CallExpr *CE) {
-    inherited::TraverseStmt(CE->getCallee());
+  bool TraverseCallExpr(CallExpr *CE) override {
+    DynamicRecursiveASTVisitor::TraverseStmt(CE->getCallee());
 
     for (Expr *Arg : CE->arguments())
-      inherited::TraverseStmt(Arg);
+      DynamicRecursiveASTVisitor::TraverseStmt(Arg);
 
     return true;
   }
 
-  bool TraverseTypeLoc(TypeLoc TL, bool TraverseQualifier = true) {
+  bool TraverseTypeLoc(TypeLoc TL, bool TraverseQualifier = true) override {
     // We don't care about TypeLocs. So traverse Types instead.
     return TraverseType(TL.getType().getCanonicalType(), TraverseQualifier);
   }
 
-  bool TraverseTagType(const TagType *T, bool TraverseQualifier) {
+  bool TraverseTagType(TagType *T, bool TraverseQualifier = true) override {
     // T's parent can be dependent while T doesn't have any template arguments.
     // We should have already traversed its qualifier.
     // FIXME: Add an assert to catch cases where we failed to profile the
@@ -361,32 +357,32 @@ public:
   }
 
   bool TraverseInjectedClassNameType(InjectedClassNameType *T,
-                                     bool TraverseQualifier) {
+                                     bool TraverseQualifier = true) override {
     return TraverseTemplateArguments(T->getTemplateArgs(SemaRef.Context));
   }
 
-  bool TraverseTemplateArgument(const TemplateArgument &Arg) {
+  bool TraverseTemplateArgument(const TemplateArgument &Arg) override {
     if (!Arg.containsUnexpandedParameterPack() || Arg.isPackExpansion()) {
       // Act as if we are fully expanding this pack, if it is a PackExpansion.
       Sema::ArgPackSubstIndexRAII _1(SemaRef, std::nullopt);
       llvm::SaveAndRestore<UnsignedOrNone> _2(OuterPackSubstIndex,
                                               std::nullopt);
-      return inherited::TraverseTemplateArgument(Arg);
+      return DynamicRecursiveASTVisitor::TraverseTemplateArgument(Arg);
     }
 
     Sema::ArgPackSubstIndexRAII _1(SemaRef, OuterPackSubstIndex);
-    return inherited::TraverseTemplateArgument(Arg);
+    return DynamicRecursiveASTVisitor::TraverseTemplateArgument(Arg);
   }
 
-  bool TraverseSizeOfPackExpr(SizeOfPackExpr *SOPE) {
+  bool TraverseSizeOfPackExpr(SizeOfPackExpr *SOPE) override {
     return TraverseDecl(SOPE->getPack());
   }
 
-  bool VisitSubstNonTypeTemplateParmExpr(SubstNonTypeTemplateParmExpr *E) {
-    return inherited::TraverseStmt(E->getReplacement());
+  bool VisitSubstNonTypeTemplateParmExpr(SubstNonTypeTemplateParmExpr *E) override {
+    return DynamicRecursiveASTVisitor::TraverseStmt(E->getReplacement());
   }
 
-  bool TraverseTemplateName(TemplateName Template) {
+  bool TraverseTemplateName(TemplateName Template) override {
     if (auto *TTP = dyn_cast_if_present<TemplateTemplateParmDecl>(
             Template.getAsTemplateDecl());
         TTP && TTP->getDepth() < TemplateArgs.getNumLevels()) {
@@ -405,7 +401,7 @@ public:
       UsedTemplateArgs.push_back(
           SemaRef.Context.getCanonicalTemplateArgument(Arg));
     }
-    return inherited::TraverseTemplateName(Template);
+    return DynamicRecursiveASTVisitor::TraverseTemplateName(Template);
   }
 
   void VisitConstraint(const NormalizedConstraintWithParamMapping &Constraint) {

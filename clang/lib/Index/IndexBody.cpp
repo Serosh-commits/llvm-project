@@ -11,7 +11,7 @@
 #include "clang/AST/ASTLambda.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/ExprConcepts.h"
-#include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/AST/DynamicRecursiveASTVisitor.h"
 #include "clang/AST/Type.h"
 #include "clang/Sema/HeuristicResolver.h"
 
@@ -20,13 +20,11 @@ using namespace clang::index;
 
 namespace {
 
-class BodyIndexer : public RecursiveASTVisitor<BodyIndexer> {
+class BodyIndexer : public DynamicRecursiveASTVisitor {
   IndexingContext &IndexCtx;
   const NamedDecl *Parent;
   const DeclContext *ParentDC;
   SmallVector<Stmt*, 16> StmtStack;
-
-  typedef RecursiveASTVisitor<BodyIndexer> base;
 
   Stmt *getParentStmt() const {
     return StmtStack.size() < 2 ? nullptr : StmtStack.end()[-2];
@@ -34,27 +32,27 @@ class BodyIndexer : public RecursiveASTVisitor<BodyIndexer> {
 public:
   BodyIndexer(IndexingContext &indexCtx,
               const NamedDecl *Parent, const DeclContext *DC)
-    : IndexCtx(indexCtx), Parent(Parent), ParentDC(DC) { }
+    : IndexCtx(indexCtx), Parent(Parent), ParentDC(DC) {
+    ShouldWalkTypesOfTypeLocs = false;
+  }
 
-  bool shouldWalkTypesOfTypeLocs() const { return false; }
-
-  bool dataTraverseStmtPre(Stmt *S) {
+  bool dataTraverseStmtPre(Stmt *S) override {
     StmtStack.push_back(S);
     return true;
   }
 
-  bool dataTraverseStmtPost(Stmt *S) {
+  bool dataTraverseStmtPost(Stmt *S) override {
     assert(StmtStack.back() == S);
     StmtStack.pop_back();
     return true;
   }
 
-  bool TraverseTypeLoc(TypeLoc TL) {
+  bool TraverseTypeLoc(TypeLoc TL, bool TraverseQualifier = true) override {
     IndexCtx.indexTypeLoc(TL, Parent, ParentDC);
     return true;
   }
 
-  bool TraverseNestedNameSpecifierLoc(NestedNameSpecifierLoc NNS) {
+  bool TraverseNestedNameSpecifierLoc(NestedNameSpecifierLoc NNS) override {
     IndexCtx.indexNestedNameSpecifierLoc(NNS, Parent, ParentDC);
     return true;
   }
@@ -141,39 +139,39 @@ public:
       Relations.emplace_back((unsigned)SymbolRole::RelationCalledBy, MD);
   }
 
-  bool VisitDeclRefExpr(DeclRefExpr *E) {
+  bool VisitDeclRefExpr(DeclRefExpr *E) override {
     SmallVector<SymbolRelation, 4> Relations;
     SymbolRoleSet Roles = getRolesForRef(E, Relations);
     return IndexCtx.handleReference(E->getDecl(), E->getLocation(),
                                     Parent, ParentDC, Roles, Relations, E);
   }
 
-  bool VisitGotoStmt(GotoStmt *S) {
+  bool VisitGotoStmt(GotoStmt *S) override {
     return IndexCtx.handleReference(S->getLabel(), S->getLabelLoc(), Parent,
                                     ParentDC);
   }
 
-  bool VisitCXXNewExpr(CXXNewExpr *E) {
+  bool VisitCXXNewExpr(CXXNewExpr *E) override {
     if (E->isGlobalNew() || !E->getOperatorNew())
       return true;
     return IndexCtx.handleReference(E->getOperatorNew(), E->getBeginLoc(),
                                     Parent, ParentDC);
   }
 
-  bool VisitCXXDeleteExpr(CXXDeleteExpr *E) {
+  bool VisitCXXDeleteExpr(CXXDeleteExpr *E) override {
     if (E->isGlobalDelete() || !E->getOperatorDelete())
       return true;
     return IndexCtx.handleReference(E->getOperatorDelete(), E->getBeginLoc(),
                                     Parent, ParentDC);
   }
 
-  bool VisitLabelStmt(LabelStmt *S) {
+  bool VisitLabelStmt(LabelStmt *S) override {
     if (IndexCtx.shouldIndexFunctionLocalSymbols())
       return IndexCtx.handleDecl(S->getDecl());
     return true;
   }
 
-  bool VisitMemberExpr(MemberExpr *E) {
+  bool VisitMemberExpr(MemberExpr *E) override {
     SourceLocation Loc = E->getMemberLoc();
     if (Loc.isInvalid())
       Loc = E->getBeginLoc();
@@ -196,21 +194,21 @@ public:
                                     Roles, Relations, E);
   }
 
-  bool VisitCXXDependentScopeMemberExpr(CXXDependentScopeMemberExpr *E) {
+  bool VisitCXXDependentScopeMemberExpr(CXXDependentScopeMemberExpr *E) override {
     auto *Resolver = IndexCtx.getResolver();
     assert(Resolver);
     return indexDependentReference(E, E->getMemberNameInfo().getLoc(),
                                    Resolver->resolveMemberExpr(E));
   }
 
-  bool VisitDependentScopeDeclRefExpr(DependentScopeDeclRefExpr *E) {
+  bool VisitDependentScopeDeclRefExpr(DependentScopeDeclRefExpr *E) override {
     auto *Resolver = IndexCtx.getResolver();
     assert(Resolver);
     return indexDependentReference(E, E->getNameInfo().getLoc(),
                                    Resolver->resolveDeclRefExpr(E));
   }
 
-  bool VisitDesignatedInitExpr(DesignatedInitExpr *E) {
+  bool VisitDesignatedInitExpr(DesignatedInitExpr *E) override {
     for (DesignatedInitExpr::Designator &D : llvm::reverse(E->designators())) {
       if (D.isFieldDesignator()) {
         if (const FieldDecl *FD = D.getFieldDecl()) {
@@ -374,14 +372,13 @@ public:
                                     Parent, ParentDC, Roles, Relations, E);
   }
 
-  bool TraverseCXXOperatorCallExpr(CXXOperatorCallExpr *E,
-                                   DataRecursionQueue *Q = nullptr) {
+  bool TraverseCXXOperatorCallExpr(CXXOperatorCallExpr *E) override {
     if (E->getOperatorLoc().isInvalid())
       return true; // implicit.
-    return base::TraverseCXXOperatorCallExpr(E, Q);
+    return DynamicRecursiveASTVisitor::TraverseCXXOperatorCallExpr(E);
   }
 
-  bool VisitDeclStmt(DeclStmt *S) {
+  bool VisitDeclStmt(DeclStmt *S) override {
     if (IndexCtx.shouldIndexFunctionLocalSymbols()) {
       IndexCtx.indexDeclGroupRef(S->getDeclGroup());
       return true;
@@ -400,11 +397,11 @@ public:
   }
 
   bool TraverseLambdaCapture(LambdaExpr *LE, const LambdaCapture *C,
-                             Expr *Init) {
+                             Expr *Init) override {
     if (C->capturesThis() || C->capturesVLAType())
       return true;
 
-    if (!base::TraverseStmt(Init))
+    if (!DynamicRecursiveASTVisitor::TraverseStmt(Init))
       return false;
 
     if (C->capturesVariable() && IndexCtx.shouldIndexFunctionLocalSymbols())

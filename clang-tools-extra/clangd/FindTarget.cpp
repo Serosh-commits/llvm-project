@@ -23,7 +23,7 @@
 #include "clang/AST/ExprObjC.h"
 #include "clang/AST/NestedNameSpecifier.h"
 #include "clang/AST/PrettyPrinter.h"
-#include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/AST/DynamicRecursiveASTVisitor.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/AST/TemplateBase.h"
 #include "clang/AST/Type.h"
@@ -924,44 +924,44 @@ refInTypeLoc(TypeLoc L, const HeuristicResolver *Resolver) {
 }
 
 class ExplicitReferenceCollector
-    : public RecursiveASTVisitor<ExplicitReferenceCollector> {
+    : public DynamicRecursiveASTVisitor {
 public:
   ExplicitReferenceCollector(llvm::function_ref<void(ReferenceLoc)> Out,
-                             const HeuristicResolver *Resolver)
+                              const HeuristicResolver *Resolver)
       : Out(Out), Resolver(Resolver) {
     assert(Out);
   }
 
-  bool VisitTypeLoc(TypeLoc TTL) {
+  bool VisitTypeLoc(TypeLoc TTL) override {
     if (TypeLocsToSkip.count(TTL.getBeginLoc()))
       return true;
     visitNode(DynTypedNode::create(TTL));
     return true;
   }
 
-  bool VisitStmt(Stmt *S) {
+  bool VisitStmt(Stmt *S) override {
     visitNode(DynTypedNode::create(*S));
     return true;
   }
 
-  bool TraverseOpaqueValueExpr(OpaqueValueExpr *OVE) {
+  bool TraverseOpaqueValueExpr(OpaqueValueExpr *OVE) override {
     visitNode(DynTypedNode::create(*OVE));
     // Not clear why the source expression is skipped by default...
-    // FIXME: can we just make RecursiveASTVisitor do this?
-    return RecursiveASTVisitor::TraverseStmt(OVE->getSourceExpr());
+    // FIXME: can we just make DynamicRecursiveASTVisitor do this?
+    return DynamicRecursiveASTVisitor::TraverseStmt(OVE->getSourceExpr());
   }
 
-  bool TraversePseudoObjectExpr(PseudoObjectExpr *POE) {
+  bool TraversePseudoObjectExpr(PseudoObjectExpr *POE) override {
     visitNode(DynTypedNode::create(*POE));
     // Traverse only the syntactic form to find the *written* references.
     // (The semantic form also contains lots of duplication)
-    return RecursiveASTVisitor::TraverseStmt(POE->getSyntacticForm());
+    return DynamicRecursiveASTVisitor::TraverseStmt(POE->getSyntacticForm());
   }
 
   // We re-define Traverse*, since there's no corresponding Visit*.
   // TemplateArgumentLoc is the only way to get locations for references to
   // template template parameters.
-  bool TraverseTemplateArgumentLoc(TemplateArgumentLoc A) {
+  bool TraverseTemplateArgumentLoc(TemplateArgumentLoc A) override {
     switch (A.getArgument().getKind()) {
     case TemplateArgument::Template:
     case TemplateArgument::TemplateExpansion:
@@ -985,36 +985,36 @@ public:
     case TemplateArgument::StructuralValue:
       break; // Handled by VisitType and VisitExpression.
     };
-    return RecursiveASTVisitor::TraverseTemplateArgumentLoc(A);
+    return DynamicRecursiveASTVisitor::TraverseTemplateArgumentLoc(A);
   }
 
-  bool VisitDecl(Decl *D) {
+  bool VisitDecl(Decl *D) override {
     visitNode(DynTypedNode::create(*D));
     return true;
   }
 
   // We have to use Traverse* because there is no corresponding Visit*.
-  bool TraverseNestedNameSpecifierLoc(NestedNameSpecifierLoc L) {
+  bool TraverseNestedNameSpecifierLoc(NestedNameSpecifierLoc L) override {
     if (!L.getNestedNameSpecifier())
       return true;
     visitNode(DynTypedNode::create(L));
     // Inner type is missing information about its qualifier, skip it.
     if (auto TL = L.getAsTypeLoc())
       TypeLocsToSkip.insert(TL.getBeginLoc());
-    return RecursiveASTVisitor::TraverseNestedNameSpecifierLoc(L);
+    return DynamicRecursiveASTVisitor::TraverseNestedNameSpecifierLoc(L);
   }
 
-  bool TraverseObjCProtocolLoc(ObjCProtocolLoc ProtocolLoc) {
+  bool TraverseObjCProtocolLoc(ObjCProtocolLoc ProtocolLoc) override {
     visitNode(DynTypedNode::create(ProtocolLoc));
     return true;
   }
 
-  bool TraverseConstructorInitializer(CXXCtorInitializer *Init) {
+  bool TraverseConstructorInitializer(CXXCtorInitializer *Init) override {
     visitNode(DynTypedNode::create(*Init));
-    return RecursiveASTVisitor::TraverseConstructorInitializer(Init);
+    return DynamicRecursiveASTVisitor::TraverseConstructorInitializer(Init);
   }
 
-  bool VisitConceptReference(const ConceptReference *CR) {
+  bool VisitConceptReference(ConceptReference *CR) override {
     visitNode(DynTypedNode::create(*CR));
     return true;
   }

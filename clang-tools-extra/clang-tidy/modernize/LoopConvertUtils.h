@@ -10,7 +10,7 @@
 #define LLVM_CLANG_TOOLS_EXTRA_CLANG_TIDY_MODERNIZE_LOOPCONVERTUTILS_H
 
 #include "clang/AST/ASTContext.h"
-#include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/AST/DynamicRecursiveASTVisitor.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/Basic/SourceLocation.h"
 #include "llvm/ADT/DenseMap.h"
@@ -284,7 +284,7 @@ bool areSameVariable(const ValueDecl *First, const ValueDecl *Second);
 /// Given an index variable, recursively crawls a for loop to discover if the
 /// index variable is used in a way consistent with range-based for loop access.
 class ForLoopIndexUseVisitor
-    : public RecursiveASTVisitor<ForLoopIndexUseVisitor> {
+    : public DynamicRecursiveASTVisitor {
 public:
   ForLoopIndexUseVisitor(ASTContext *Context, const VarDecl *IndexVar,
                          const VarDecl *EndVar, const Expr *ContainerExpr,
@@ -338,21 +338,17 @@ public:
   bool aliasFromForInit() const { return AliasFromForInit; }
 
 private:
-  /// Typedef used in CRTP functions.
-  using VisitorBase = RecursiveASTVisitor<ForLoopIndexUseVisitor>;
-  friend class RecursiveASTVisitor<ForLoopIndexUseVisitor>;
-
-  /// Overriden methods for RecursiveASTVisitor's traversal.
-  bool TraverseArraySubscriptExpr(ArraySubscriptExpr *E);
-  bool TraverseCXXMemberCallExpr(CXXMemberCallExpr *MemberCall);
-  bool TraverseCXXOperatorCallExpr(CXXOperatorCallExpr *OpCall);
+  /// Overriden methods for DynamicRecursiveASTVisitor's traversal.
+  bool TraverseArraySubscriptExpr(ArraySubscriptExpr *E) override;
+  bool TraverseCXXMemberCallExpr(CXXMemberCallExpr *MemberCall) override;
+  bool TraverseCXXOperatorCallExpr(CXXOperatorCallExpr *OpCall) override;
   bool TraverseLambdaCapture(LambdaExpr *LE, const LambdaCapture *C,
-                             Expr *Init);
-  bool TraverseMemberExpr(MemberExpr *Member);
-  bool TraverseUnaryOperator(UnaryOperator *Uop);
-  bool VisitDeclRefExpr(DeclRefExpr *E);
-  bool VisitDeclStmt(DeclStmt *S);
-  bool TraverseStmt(Stmt *S);
+                             Expr *Init) override;
+  bool TraverseMemberExpr(MemberExpr *Member) override;
+  bool TraverseUnaryOperator(UnaryOperator *Uop) override;
+  bool VisitDeclRefExpr(DeclRefExpr *E) override;
+  bool VisitDeclStmt(DeclStmt *S) override;
+  bool TraverseStmt(Stmt *S) override;
 
   bool traverseStmtImpl(Stmt *S);
 

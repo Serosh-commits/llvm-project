@@ -8,7 +8,7 @@
 
 #include "SimplifyBooleanExprCheck.h"
 #include "clang/AST/Expr.h"
-#include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/AST/DynamicRecursiveASTVisitor.h"
 #include "clang/Basic/DiagnosticIDs.h"
 #include "clang/Lex/Lexer.h"
 #include "llvm/Support/SaveAndRestore.h"
@@ -255,9 +255,7 @@ static bool containsDiscardedTokens(const ASTContext &Context,
   return false;
 }
 
-class SimplifyBooleanExprCheck::Visitor : public RecursiveASTVisitor<Visitor> {
-  using Base = RecursiveASTVisitor<Visitor>;
-
+class SimplifyBooleanExprCheck::Visitor : public DynamicRecursiveASTVisitor {
 public:
   Visitor(SimplifyBooleanExprCheck *Check, ASTContext &Context)
       : Check(Check), Context(Context) {}
@@ -275,7 +273,7 @@ public:
     }
   }
 
-  bool dataTraverseStmtPre(Stmt *S) {
+  bool dataTraverseStmtPre(Stmt *S) override {
     if (!S) {
       return true;
     }
@@ -286,7 +284,7 @@ public:
     return true;
   }
 
-  bool dataTraverseStmtPost(Stmt *S) {
+  bool dataTraverseStmtPost(Stmt *S) override {
     if (S && !shouldIgnore(S)) {
       assert(StmtStack.back() == S);
       StmtStack.pop_back();
@@ -294,7 +292,7 @@ public:
     return true;
   }
 
-  bool VisitBinaryOperator(const BinaryOperator *Op) const {
+  bool VisitBinaryOperator(BinaryOperator *Op) override {
     Check->reportBinOp(Context, Op);
     return true;
   }
@@ -356,7 +354,7 @@ public:
     return StmtStack.size() < 2 ? nullptr : StmtStack[StmtStack.size() - 2];
   }
 
-  bool VisitIfStmt(IfStmt *If) {
+  bool VisitIfStmt(IfStmt *If) override {
     // Skip any if's that have a condition var or an init statement, or are
     // "if consteval" statements.
     if (If->hasInitStorage() || If->hasVarStorage() || If->isConsteval())
@@ -436,7 +434,7 @@ public:
     return true;
   }
 
-  bool VisitConditionalOperator(ConditionalOperator *Cond) {
+  bool VisitConditionalOperator(ConditionalOperator *Cond) override {
     /*
      * Condition ? true : false; -> Condition
      * Condition ? false : true; -> !Condition;
@@ -452,7 +450,7 @@ public:
     return true;
   }
 
-  bool VisitCompoundStmt(CompoundStmt *CS) {
+  bool VisitCompoundStmt(CompoundStmt *CS) override {
     if (CS->size() < 2)
       return true;
     bool CurIf = false, PrevIf = false;
@@ -555,15 +553,15 @@ public:
     }
   }
 
-  bool TraverseUnaryOperator(UnaryOperator *Op) {
+  bool TraverseUnaryOperator(UnaryOperator *Op) override {
     if (!Check->SimplifyDeMorgan || Op->getOpcode() != UO_LNot)
-      return Base::TraverseUnaryOperator(Op);
+      return DynamicRecursiveASTVisitor::TraverseUnaryOperator(Op);
     const Expr *SubImp = Op->getSubExpr()->IgnoreImplicit();
     const auto *Parens = dyn_cast<ParenExpr>(SubImp);
     const Expr *SubExpr =
         Parens ? Parens->getSubExpr()->IgnoreImplicit() : SubImp;
     if (!isExpectedBinaryOp(SubExpr))
-      return Base::TraverseUnaryOperator(Op);
+      return DynamicRecursiveASTVisitor::TraverseUnaryOperator(Op);
     const auto *BinaryOp = cast<BinaryOperator>(SubExpr);
     if (Check->SimplifyDeMorganRelaxed ||
         checkEitherSide(

@@ -16,7 +16,7 @@
 #include "clang/Tooling/Refactoring/Rename/USRLocFinder.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ParentMapContext.h"
-#include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/AST/DynamicRecursiveASTVisitor.h"
 #include "clang/Basic/LLVM.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/SourceManager.h"
@@ -184,7 +184,7 @@ NestedNameSpecifier GetNestedNameForType(TypeLoc TL) {
 //
 // This class will traverse the AST and find every AST node whose USR is in the
 // given USRs' set.
-class RenameLocFinder : public RecursiveASTVisitor<RenameLocFinder> {
+class RenameLocFinder : public DynamicRecursiveASTVisitor {
 public:
   RenameLocFinder(llvm::ArrayRef<std::string> USRs, ASTContext &Context)
       : USRSet(USRs.begin(), USRs.end()), Context(Context) {}
@@ -210,7 +210,7 @@ public:
     bool IgnorePrefixQualifiers;
   };
 
-  bool VisitNamedDecl(const NamedDecl *Decl) {
+  bool VisitNamedDecl(NamedDecl *Decl) override {
     // UsingDecl has been handled in other place.
     if (llvm::isa<UsingDecl>(Decl))
       return true;
@@ -243,7 +243,7 @@ public:
     return true;
   }
 
-  bool VisitMemberExpr(const MemberExpr *Expr) {
+  bool VisitMemberExpr(MemberExpr *Expr) override {
     const NamedDecl *Decl = Expr->getFoundDecl();
     auto StartLoc = Expr->getMemberLoc();
     auto EndLoc = Expr->getMemberLoc();
@@ -257,7 +257,7 @@ public:
     return true;
   }
 
-  bool VisitDesignatedInitExpr(const DesignatedInitExpr *E) {
+  bool VisitDesignatedInitExpr(DesignatedInitExpr *E) override {
     for (const DesignatedInitExpr::Designator &D : E->designators()) {
       if (D.isFieldDesignator()) {
         if (const FieldDecl *Decl = D.getFieldDecl()) {
@@ -276,7 +276,7 @@ public:
     return true;
   }
 
-  bool VisitCXXConstructorDecl(const CXXConstructorDecl *CD) {
+  bool VisitCXXConstructorDecl(CXXConstructorDecl *CD) override {
     // Fix the constructor initializer when renaming class members.
     for (const auto *Initializer : CD->inits()) {
       // Ignore implicit initializers.
@@ -297,7 +297,7 @@ public:
     return true;
   }
 
-  bool VisitDeclRefExpr(const DeclRefExpr *Expr) {
+  bool VisitDeclRefExpr(DeclRefExpr *Expr) override {
     const NamedDecl *Decl = Expr->getFoundDecl();
     // Get the underlying declaration of the shadow declaration introduced by a
     // using declaration.
@@ -371,7 +371,7 @@ public:
     return true;
   }
 
-  bool VisitUsingDecl(const UsingDecl *Using) {
+  bool VisitUsingDecl(UsingDecl *Using) override {
     for (const auto *UsingShadow : Using->shadows()) {
       if (isInUSRSet(UsingShadow->getTargetDecl())) {
         UsingDecls.push_back(Using);
@@ -400,7 +400,7 @@ public:
     return true;
   }
 
-  bool VisitTypeLoc(TypeLoc Loc) {
+  bool VisitTypeLoc(TypeLoc Loc) override {
     auto Parents = Context.getParents(Loc);
     TypeLoc ParentTypeLoc;
     if (!Parents.empty()) {
